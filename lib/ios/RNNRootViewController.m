@@ -1,35 +1,16 @@
 #import "RNNRootViewController.h"
-#import <React/RCTConvert.h>
-#import "RNNAnimator.h"
-#import "RNNPushAnimation.h"
-#import "RNNReactView.h"
-#import "RNNParentProtocol.h"
-
+#import "RNNAnimationsTransitionDelegate.h"
+#import "UIViewController+LayoutProtocol.h"
 
 @implementation RNNRootViewController
 
 @synthesize previewCallback;
 
 - (instancetype)initWithLayoutInfo:(RNNLayoutInfo *)layoutInfo rootViewCreator:(id<RNNRootViewCreator>)creator eventEmitter:(RNNEventEmitter *)eventEmitter presenter:(RNNViewControllerPresenter *)presenter options:(RNNNavigationOptions *)options defaultOptions:(RNNNavigationOptions *)defaultOptions {
-	self = [super init];
-	
-	self.layoutInfo = layoutInfo;
-	self.creator = creator;
-	
-	self.eventEmitter = eventEmitter;
-	self.presenter = presenter;
-	[self.presenter bindViewController:self];
-	self.options = options;
-	self.defaultOptions = defaultOptions;
-	
-	[self.presenter applyOptionsOnInit:self.resolveOptions];
+	self = [super initWithLayoutInfo:layoutInfo creator:creator options:options defaultOptions:defaultOptions presenter:presenter eventEmitter:eventEmitter childViewControllers:nil];
 	
 	self.animator = [[RNNAnimator alloc] initWithTransitionOptions:self.resolveOptions.customTransition];
 	
-	[[NSNotificationCenter defaultCenter] addObserver:self
-											 selector:@selector(onJsReload)
-												 name:RCTJavaScriptWillStartLoadingNotification
-											   object:nil];
 	self.navigationController.delegate = self;
 	
 	return self;
@@ -46,15 +27,9 @@
 	[viewController didMoveToParentViewController:self];
 }
 
-- (void)willMoveToParentViewController:(UIViewController *)parent {
-	if (parent) {
-		[_presenter applyOptionsOnWillMoveToParentViewController:self.resolveOptions];
-	}
-}
-
 - (void)mergeOptions:(RNNNavigationOptions *)options {
 	[_presenter mergeOptions:options currentOptions:self.options defaultOptions:self.defaultOptions];
-	[((UIViewController<RNNLayoutProtocol> *)self.parentViewController) mergeOptions:options];
+	[self.parentViewController mergeOptions:options];
 }
 
 - (void)overrideOptions:(RNNNavigationOptions *)options {
@@ -67,11 +42,7 @@
 	[_presenter applyOptions:self.resolveOptions];
 	[_presenter renderComponents:self.resolveOptions perform:nil];
 	
-	[((UIViewController<RNNParentProtocol> *)self.parentViewController) onChildWillAppear];
-}
-
-- (RNNNavigationOptions *)resolveOptions {
-	return [self.options withDefault:self.defaultOptions];
+	[self.parentViewController onChildWillAppear];
 }
 
 -(void)viewDidAppear:(BOOL)animated {
@@ -97,7 +68,7 @@
 	}
 	
 	__block RNNReactViewReadyCompletionBlock readyBlockCopy = readyBlock;
-	UIView* reactView = [_creator createRootView:self.layoutInfo.name rootViewId:self.layoutInfo.componentId availableSize:[UIScreen mainScreen].bounds.size reactViewReadyBlock:^{
+	UIView* reactView = [self.creator createRootView:self.layoutInfo.name rootViewId:self.layoutInfo.componentId availableSize:[UIScreen mainScreen].bounds.size reactViewReadyBlock:^{
 		[_presenter renderComponents:self.resolveOptions perform:^{
 			if (readyBlockCopy) {
 				readyBlockCopy();
@@ -105,7 +76,7 @@
 			}
 		}];
 	}];
-
+	
 	self.view = reactView;
 	
 	if (!wait && readyBlock) {
@@ -115,7 +86,11 @@
 }
 
 - (UIViewController *)getCurrentChild {
-	return self;
+	return nil;
+}
+
+- (CGFloat)getTopBarHeight {
+    return [[self getCurrentChild] getTopBarHeight];
 }
 
 -(void)updateSearchResultsForSearchController:(UISearchController *)searchController {
@@ -172,9 +147,9 @@
 	if (self.animator) {
 		return self.animator;
 	} else if (operation == UINavigationControllerOperationPush && self.resolveOptions.animations.push.hasCustomAnimation) {
-		return [[RNNPushAnimation alloc] initWithScreenTransition:self.resolveOptions.animations.push];
+		return [[RNNAnimationsTransitionDelegate alloc] initWithScreenTransition:self.resolveOptions.animations.push isDismiss:NO];
 	} else if (operation == UINavigationControllerOperationPop && self.resolveOptions.animations.pop.hasCustomAnimation) {
-		return [[RNNPushAnimation alloc] initWithScreenTransition:self.resolveOptions.animations.pop];
+		return [[RNNAnimationsTransitionDelegate alloc] initWithScreenTransition:self.resolveOptions.animations.pop isDismiss:YES];
 	} else {
 		return nil;
 	}
@@ -182,18 +157,9 @@
 	return nil;
 }
 
-- (nullable id <UIViewControllerAnimatedTransitioning>)animationControllerForPresentedController:(UIViewController *)presented presentingController:(UIViewController *)presenting sourceController:(UIViewController *)source {
-	return [[RNNModalAnimation alloc] initWithScreenTransition:self.resolveOptions.animations.showModal isDismiss:NO];
-}
-
-- (id<UIViewControllerAnimatedTransitioning>)animationControllerForDismissedController:(UIViewController *)dismissed {
-	return [[RNNModalAnimation alloc] initWithScreenTransition:self.resolveOptions.animations.dismissModal isDismiss:YES];
-}
-
 - (UIViewController *)previewingContext:(id<UIViewControllerPreviewing>)previewingContext viewControllerForLocation:(CGPoint)location{
 	return self.previewController;
 }
-
 
 - (void)previewingContext:(id<UIViewControllerPreviewing>)previewingContext commitViewController:(UIViewController *)viewControllerToCommit {
 	if (self.previewCallback) {
@@ -243,27 +209,5 @@
 	[self.eventEmitter sendOnNavigationButtonPressed:self.layoutInfo.componentId buttonId:barButtonItem.buttonId];
 }
 
-/**
- *	fix for #877, #878
- */
--(void)onJsReload {
-	[self cleanReactLeftovers];
-}
-
-/**
- * fix for #880
- */
--(void)dealloc {
-	[self cleanReactLeftovers];
-}
-
--(void)cleanReactLeftovers {
-	[[NSNotificationCenter defaultCenter] removeObserver:self];
-	[[NSNotificationCenter defaultCenter] removeObserver:self.view];
-	self.view = nil;
-	self.navigationItem.titleView = nil;
-	self.navigationItem.rightBarButtonItems = nil;
-	self.navigationItem.leftBarButtonItems = nil;
-}
 
 @end

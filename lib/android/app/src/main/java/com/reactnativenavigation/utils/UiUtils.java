@@ -6,6 +6,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.util.DisplayMetrics;
 import android.view.View;
 import android.view.ViewTreeObserver;
@@ -19,7 +20,13 @@ public class UiUtils {
     private static int statusBarHeight = -1;
     private static int topBarHeight = -1;
 
-    public static void runOnPreDrawOnce(final View view, final Runnable task) {
+    public static <T extends View> void runOnPreDrawOnce(@Nullable final T view, final Functions.Func1<T> task) {
+        if (view == null) return;
+        runOnPreDrawOnce(view, () -> task.run(view));
+    }
+
+    public static void runOnPreDrawOnce(@Nullable final View view, final Runnable task) {
+        if (view == null) return;
         view.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
             @Override
             public boolean onPreDraw() {
@@ -103,6 +110,7 @@ public class UiUtils {
     }
 
     public static int dpToPx(Context context, int dp) {
+        if (dp <= 0) return dp;
         Resources resources = context.getResources();
         DisplayMetrics metrics = resources.getDisplayMetrics();
         return (int) (dp * ((float)metrics.densityDpi / DisplayMetrics.DENSITY_DEFAULT));

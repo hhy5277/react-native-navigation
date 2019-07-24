@@ -3,30 +3,33 @@
 #import "RNNNavigationController.h"
 #import <React/RCTConvert.h>
 #import "RNNCustomTitleView.h"
+#import "UIViewController+LayoutProtocol.h"
 
 @interface RNNNavigationControllerPresenter() {
 	RNNReactComponentRegistry* _componentRegistry;
 	UIView* _customTopBar;
 	UIView* _customTopBarBackground;
+	RNNReactView* _customTopBarBackgroundReactView;
 }
 
 @end
 @implementation RNNNavigationControllerPresenter
 
-- (instancetype)initWithcomponentRegistry:(RNNReactComponentRegistry *)componentRegistry {
+- (instancetype)initWithComponentRegistry:(RNNReactComponentRegistry *)componentRegistry {
 	self = [super init];
 	_componentRegistry = componentRegistry;
 	return self;
 }
 
-- (void)bindViewController:(UIViewController *)bindedViewController {
-	self.bindedViewController = bindedViewController;
-}
-
 - (void)applyOptions:(RNNNavigationOptions *)options {
 	[super applyOptions:options];
 	
-	RNNNavigationController* navigationController = self.bindedViewController;
+	RNNNavigationController* navigationController = self.boundViewController;
+	
+	self.interactivePopGestureDelegate = [InteractivePopGestureDelegate new];
+	self.interactivePopGestureDelegate.navigationController = navigationController;
+	self.interactivePopGestureDelegate.originalDelegate = navigationController.interactivePopGestureRecognizer.delegate;
+	navigationController.interactivePopGestureRecognizer.delegate = self.interactivePopGestureDelegate;
 	
 	[navigationController rnn_setInteractivePopGestureEnabled:[options.popGesture getWithDefaultValue:YES]];
 	[navigationController rnn_setRootBackgroundImage:[options.rootBackgroundImage getWithDefaultValue:nil]];
@@ -43,27 +46,29 @@
 	[navigationController rnn_setNavigationBarLargeTitleFontFamily:[options.topBar.largeTitle.fontFamily getWithDefaultValue:nil] fontSize:[options.topBar.largeTitle.fontSize getWithDefaultValue:nil] color:[options.topBar.largeTitle.color getWithDefaultValue:nil]];
 	[navigationController rnn_setNavigationBarFontFamily:[options.topBar.title.fontFamily getWithDefaultValue:nil] fontSize:[options.topBar.title.fontSize getWithDefaultValue:nil] color:[options.topBar.title.color getWithDefaultValue:nil]];
 	[navigationController rnn_setBackButtonColor:[options.topBar.backButton.color getWithDefaultValue:nil]];
-	[navigationController rnn_setBackButtonIcon:[options.topBar.backButton.icon getWithDefaultValue:nil] withColor:[options.topBar.backButton.color getWithDefaultValue:nil] title:[options.topBar.backButton.showTitle getWithDefaultValue:YES] ? [options.topBar.backButton.title getWithDefaultValue:nil] : @""];
 }
 
 - (void)applyOptionsOnWillMoveToParentViewController:(RNNNavigationOptions *)options {
 	[super applyOptionsOnWillMoveToParentViewController:options];
-	
-	RNNNavigationController* navigationController = self.bindedViewController;
-	[navigationController rnn_setBackButtonIcon:[options.topBar.backButton.icon getWithDefaultValue:nil] withColor:[options.topBar.backButton.color getWithDefaultValue:nil] title:[options.topBar.backButton.showTitle getWithDefaultValue:YES] ? [options.topBar.backButton.title getWithDefaultValue:nil] : @""];
+}
+
+- (void)applyOptionsOnViewDidLayoutSubviews:(RNNNavigationOptions *)options {
+	if (options.topBar.background.component.name.hasValue) {
+		[self presentBackgroundComponent];
+	}
 }
 
 - (void)applyOptionsBeforePopping:(RNNNavigationOptions *)options {
-	RNNNavigationController* navigationController = self.bindedViewController;
+	RNNNavigationController* navigationController = self.boundViewController;
 	[navigationController setTopBarBackgroundColor:[options.topBar.background.color getWithDefaultValue:nil]];
-	[navigationController rnn_setNavigationBarFontFamily:[options.topBar.title.fontFamily getWithDefaultValue:nil] fontSize:[options.topBar.title.fontSize getWithDefaultValue:@(17)] color:[options.topBar.title.color getWithDefaultValue:[UIColor blackColor]]];
+	[navigationController rnn_setNavigationBarFontFamily:[options.topBar.title.fontFamily getWithDefaultValue:nil] fontSize:[options.topBar.title.fontSize getWithDefaultValue:nil] color:[options.topBar.title.color getWithDefaultValue:[UIColor blackColor]]];
 	[navigationController rnn_setNavigationBarLargeTitleVisible:[options.topBar.largeTitle.visible getWithDefaultValue:NO]];
 }
 
 - (void)mergeOptions:(RNNNavigationOptions *)newOptions currentOptions:(RNNNavigationOptions *)currentOptions defaultOptions:(RNNNavigationOptions *)defaultOptions {
 	[super mergeOptions:newOptions currentOptions:currentOptions defaultOptions:defaultOptions];
 	
-	RNNNavigationController* navigationController = self.bindedViewController;
+	RNNNavigationController* navigationController = self.boundViewController;
 	
 	if (newOptions.popGesture.hasValue) {
 		[navigationController rnn_setInteractivePopGestureEnabled:newOptions.popGesture.get];
@@ -111,11 +116,6 @@
 	
 	if (newOptions.topBar.largeTitle.visible.hasValue) {
 		[navigationController rnn_setNavigationBarLargeTitleVisible:newOptions.topBar.largeTitle.visible.get];
-	}
-	
-	if (newOptions.topBar.backButton.icon.hasValue || newOptions.topBar.backButton.showTitle.hasValue || newOptions.topBar.backButton.color.hasValue || newOptions.topBar.backButton.title.hasValue) {
-		[navigationController rnn_setBackButtonIcon:[newOptions.topBar.backButton.icon getWithDefaultValue:nil] withColor:[newOptions.topBar.backButton.color getWithDefaultValue:nil] title:[newOptions.topBar.backButton.showTitle getWithDefaultValue:YES] ? [newOptions.topBar.backButton.title getWithDefaultValue:nil] : @""];
-		
 	}
 	
 	if (newOptions.topBar.backButton.color.hasValue) {
@@ -168,20 +168,25 @@
 }
 
 - (void)setCustomNavigationBarView:(RNNNavigationOptions *)options perform:(RNNReactViewReadyCompletionBlock)readyBlock {
-	RNNNavigationController* navigationController = self.bindedViewController;
+	RNNNavigationController* navigationController = self.boundViewController;
 	if (![options.topBar.component.waitForRender getWithDefaultValue:NO] && readyBlock) {
 		readyBlock();
 		readyBlock = nil;
 	}
 	if (options.topBar.component.name.hasValue) {
-		RCTRootView *reactView = [_componentRegistry createComponentIfNotExists:options.topBar.component parentComponentId:navigationController.layoutInfo.componentId reactViewReadyBlock:readyBlock];
+		NSString* currentChildComponentId = [navigationController getCurrentChild].layoutInfo.componentId;
+		RCTRootView *reactView = [_componentRegistry createComponentIfNotExists:options.topBar.component parentComponentId:currentChildComponentId reactViewReadyBlock:readyBlock];
 		
+		if (_customTopBar) {
+			[_customTopBar removeFromSuperview];
+		}
 		_customTopBar = [[RNNCustomTitleView alloc] initWithFrame:navigationController.navigationBar.bounds subView:reactView alignment:@"fill"];
 		reactView.backgroundColor = UIColor.clearColor;
 		_customTopBar.backgroundColor = UIColor.clearColor;
 		[navigationController.navigationBar addSubview:_customTopBar];
 	} else {
 		[_customTopBar removeFromSuperview];
+		_customTopBar = nil;
 		if (readyBlock) {
 			readyBlock();
 		}
@@ -189,27 +194,38 @@
 }
 
 - (void)setCustomNavigationComponentBackground:(RNNNavigationOptions *)options perform:(RNNReactViewReadyCompletionBlock)readyBlock {
-	RNNNavigationController* navigationController = self.bindedViewController;
+	RNNNavigationController* navigationController = self.boundViewController;
 	if (![options.topBar.background.component.waitForRender getWithDefaultValue:NO] && readyBlock) {
 		readyBlock();
 		readyBlock = nil;
 	}
 	if (options.topBar.background.component.name.hasValue) {
-		RCTRootView *reactView = [_componentRegistry createComponentIfNotExists:options.topBar.background.component parentComponentId:navigationController.layoutInfo.componentId reactViewReadyBlock:readyBlock];
+		NSString* currentChildComponentId = [navigationController getCurrentChild].layoutInfo.componentId;
+		RNNReactView *reactView = [_componentRegistry createComponentIfNotExists:options.topBar.background.component parentComponentId:currentChildComponentId reactViewReadyBlock:readyBlock];
+		_customTopBarBackgroundReactView = reactView;
 		
-		_customTopBarBackground = [[RNNCustomTitleView alloc] initWithFrame:navigationController.navigationBar.bounds subView:reactView alignment:@"fill"];
-		[navigationController.navigationBar insertSubview:_customTopBarBackground atIndex:1];
 	} else {
 		[_customTopBarBackground removeFromSuperview];
+		_customTopBarBackground = nil;
 		if (readyBlock) {
 			readyBlock();
 		}
 	}
 }
 
+- (void)presentBackgroundComponent {
+	RNNNavigationController* navigationController = self.boundViewController;
+	if (_customTopBarBackground) {
+		[_customTopBarBackground removeFromSuperview];
+	}
+	RNNCustomTitleView* customTopBarBackground = [[RNNCustomTitleView alloc] initWithFrame:navigationController.navigationBar.bounds subView:_customTopBarBackgroundReactView alignment:@"fill"];
+	_customTopBarBackground = customTopBarBackground;
+	
+	[navigationController.navigationBar insertSubview:_customTopBarBackground atIndex:1];
+}
+
 - (void)dealloc {
-	RNNNavigationController* navigationController = self.bindedViewController;
-	[_componentRegistry removeComponent:navigationController.layoutInfo.componentId];
+	[_componentRegistry removeComponent:self.boundComponentId];
 }
 
 @end

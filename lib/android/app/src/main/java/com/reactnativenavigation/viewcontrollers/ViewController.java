@@ -117,8 +117,10 @@ public abstract class ViewController<T extends ViewGroup> implements ViewTreeObs
     public void mergeOptions(Options options) {
         this.initialOptions = this.initialOptions.mergeWith(options);
         this.options = this.options.mergeWith(options);
-        this.options.clearOneTimeOptions();
-        initialOptions.clearOneTimeOptions();
+        if (getParentController() != null) {
+            this.options.clearOneTimeOptions();
+            initialOptions.clearOneTimeOptions();
+        }
     }
 
     @CallSuper
@@ -266,7 +268,7 @@ public abstract class ViewController<T extends ViewGroup> implements ViewTreeObs
         }
     }
 
-    protected void onAttachToParent() {
+    public void onAttachToParent() {
 
     }
 

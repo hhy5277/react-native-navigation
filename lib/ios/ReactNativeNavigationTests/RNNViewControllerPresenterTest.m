@@ -10,6 +10,7 @@
 @property (nonatomic, strong) RNNViewControllerPresenter *uut;
 @property (nonatomic, strong) RNNNavigationOptions *options;
 @property (nonatomic, strong) UIViewController *bindedViewController;
+@property (nonatomic, strong) RNNReactComponentRegistry *componentRegistry;
 
 @end
 
@@ -17,7 +18,8 @@
 
 - (void)setUp {
     [super setUp];
-	self.uut = [[RNNViewControllerPresenter alloc] init];
+	self.componentRegistry = [OCMockObject partialMockForObject:[RNNReactComponentRegistry new]];
+	self.uut = [[RNNViewControllerPresenter alloc] initWithComponentRegistry:self.componentRegistry];
 	self.bindedViewController = [OCMockObject partialMockForObject:[RNNRootViewController new]];
 	[self.uut bindViewController:self.bindedViewController];
 	self.options = [[RNNNavigationOptions alloc] initEmptyOptions];
@@ -132,5 +134,81 @@
     [(id)self.bindedViewController verify];
 }
 
+- (void)testReactViewShouldBeReleasedOnDealloc {
+	RNNRootViewController* bindViewController = [RNNRootViewController new];
+	bindViewController.layoutInfo = [self createLayoutInfoWithComponentId:@"componentId"];
+	[self.uut bindViewController:bindViewController];
+	
+	self.options.topBar.title.component = [[RNNComponentOptions alloc] initWithDict:@{@"name": @"componentName"}];
+	
+	[[(id)self.componentRegistry expect] clearComponentsForParentId:self.uut.boundComponentId];
+	self.uut = nil;
+	[(id)self.componentRegistry verify];
+}
+
+- (void)testBindViewControllerShouldSetBindedComponentId {
+	RNNRootViewController* bindViewController = [RNNRootViewController new];
+	RNNLayoutInfo* layoutInfo = [[RNNLayoutInfo alloc] init];
+	layoutInfo.componentId = @"componentId";
+	bindViewController.layoutInfo = layoutInfo;
+	
+	[self.uut bindViewController:bindViewController];
+	XCTAssertEqual(self.uut.boundComponentId, @"componentId");
+}
+
+- (void)testRenderComponentsCreateReactViewWithBindedComponentId {
+	RNNRootViewController* bindedViewController = [RNNRootViewController new];
+	RNNLayoutInfo* layoutInfo = [self createLayoutInfoWithComponentId:@"componentId"];
+	bindedViewController.layoutInfo = layoutInfo;
+	
+	[self.uut bindViewController:bindedViewController];
+	
+	self.options.topBar.title.component = [[RNNComponentOptions alloc] initWithDict:@{@"name": @"titleComponent"}];
+	
+	[[(id)self.componentRegistry expect] createComponentIfNotExists:self.options.topBar.title.component parentComponentId:self.uut.boundComponentId reactViewReadyBlock:[OCMArg any]];
+	[self.uut renderComponents:self.options perform:nil];
+	[(id)self.componentRegistry verify];
+	
+	
+	XCTAssertEqual(self.uut.boundComponentId, @"componentId");
+}
+
+- (void)testApplyOptionsOnWillMoveToParent_shouldSetBackButtonOnBindedViewController_withTitle {
+	Text* title = [[Text alloc] initWithValue:@"Title"];
+	self.options.topBar.backButton.title = title;
+	[[(id)self.bindedViewController expect] rnn_setBackButtonIcon:nil withColor:nil title:title.get];
+	[self.uut applyOptionsOnWillMoveToParentViewController:self.options];
+	[(id)self.bindedViewController verify];
+}
+
+- (void)testApplyOptionsOnWillMoveToParent_shouldSetBackButtonOnBindedViewController_withHideTitle {
+	Text* title = [[Text alloc] initWithValue:@"Title"];
+	self.options.topBar.backButton.title = title;
+	self.options.topBar.backButton.showTitle = [[Bool alloc] initWithValue:@(0)];
+	[[(id)self.bindedViewController expect] rnn_setBackButtonIcon:nil withColor:nil title:@""];
+	[self.uut applyOptionsOnWillMoveToParentViewController:self.options];
+	[(id)self.bindedViewController verify];
+}
+
+- (void)testApplyOptionsOnWillMoveToParent_shouldSetBackButtonOnBindedViewController_withIcon {
+	Image* image = [[Image alloc] initWithValue:[UIImage new]];
+	self.options.topBar.backButton.icon = image;
+	[[(id)self.bindedViewController expect] rnn_setBackButtonIcon:image.get withColor:nil title:nil];
+	[self.uut applyOptionsOnWillMoveToParentViewController:self.options];
+	[(id)self.bindedViewController verify];
+}
+
+- (void)testApplyOptionsOnWillMoveToParent_shouldSetBackButtonOnBindedViewController_withDefaultValues {
+	[[(id)self.bindedViewController expect] rnn_setBackButtonIcon:nil withColor:nil title:nil];
+	[self.uut applyOptionsOnWillMoveToParentViewController:self.options];
+	[(id)self.bindedViewController verify];
+}
+
+
+- (RNNLayoutInfo *)createLayoutInfoWithComponentId:(NSString *)componentId {
+	RNNLayoutInfo* layoutInfo = [[RNNLayoutInfo alloc] init];
+	layoutInfo.componentId = @"componentId";
+	return layoutInfo;
+}
 
 @end

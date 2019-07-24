@@ -2,12 +2,13 @@
 #import <OCMock/OCMock.h>
 #import "RNNTabBarPresenter.h"
 #import "UITabBarController+RNNOptions.h"
+#import "RNNTabBarController.h"
 
 @interface RNNTabBarPresenterTest : XCTestCase
 
-@property (nonatomic, strong) RNNTabBarPresenter *uut;
-@property (nonatomic, strong) RNNNavigationOptions *options;
-@property (nonatomic, strong) id bindedViewController;
+@property(nonatomic, strong) RNNTabBarPresenter *uut;
+@property(nonatomic, strong) RNNNavigationOptions *options;
+@property(nonatomic, strong) id boundViewController;
 
 @end
 
@@ -15,51 +16,64 @@
 
 - (void)setUp {
     [super setUp];
-	self.uut = [[RNNTabBarPresenter alloc] init];
-	self.bindedViewController = [OCMockObject partialMockForObject:[UITabBarController new]];
-	[self.uut bindViewController:self.bindedViewController];
-	self.options = [[RNNNavigationOptions alloc] initEmptyOptions];
+    self.uut = [OCMockObject partialMockForObject:[RNNTabBarPresenter new]];
+    self.boundViewController = [OCMockObject partialMockForObject:[RNNTabBarController new]];
+    [self.uut bindViewController:self.boundViewController];
+    self.options = [[RNNNavigationOptions alloc] initEmptyOptions];
 }
 
 - (void)testApplyOptions_shouldSetDefaultEmptyOptions {
-	RNNNavigationOptions* emptyOptions = [[RNNNavigationOptions alloc] initEmptyOptions];
-	[[self.bindedViewController expect] rnn_setTabBarTestID:nil];
-	[[self.bindedViewController expect] rnn_setTabBarBackgroundColor:nil];
-	[[self.bindedViewController expect] rnn_setTabBarTranslucent:NO];
-	[[self.bindedViewController expect] rnn_setTabBarHideShadow:NO];
-    [[self.bindedViewController expect] rnn_setTabBarStyle:UIBarStyleDefault];
-	[[self.bindedViewController expect] rnn_setTabBarVisible:YES];
-	[self.uut applyOptions:emptyOptions];
-	[self.bindedViewController verify];
+    RNNNavigationOptions *emptyOptions = [[RNNNavigationOptions alloc] initEmptyOptions];
+    [[self.boundViewController expect] rnn_setTabBarTestID:nil];
+    [[self.boundViewController expect] rnn_setTabBarBackgroundColor:nil];
+    [[self.boundViewController expect] rnn_setTabBarTranslucent:NO];
+    [[self.boundViewController expect] rnn_setTabBarHideShadow:NO];
+    [[self.boundViewController expect] rnn_setTabBarStyle:UIBarStyleDefault];
+    [[self.boundViewController expect] rnn_setTabBarVisible:YES animated:NO];
+    [self.uut applyOptions:emptyOptions];
+    [self.boundViewController verify];
 }
 
 - (void)testApplyOptions_shouldApplyOptions {
-	RNNNavigationOptions* initialOptions = [[RNNNavigationOptions alloc] initEmptyOptions];
-	initialOptions.bottomTabs.testID = [[Text alloc] initWithValue:@"testID"];
-	initialOptions.bottomTabs.backgroundColor = [[Color alloc] initWithValue:[UIColor redColor]];
-	initialOptions.bottomTabs.translucent = [[Bool alloc] initWithValue:@(0)];
-	initialOptions.bottomTabs.hideShadow = [[Bool alloc] initWithValue:@(1)];
-	initialOptions.bottomTabs.visible = [[Bool alloc] initWithValue:@(0)];
-	initialOptions.bottomTabs.barStyle = [[Text alloc] initWithValue:@"black"];
-	
-	[[self.bindedViewController expect] rnn_setTabBarTestID:@"testID"];
-	[[self.bindedViewController expect] rnn_setTabBarBackgroundColor:[UIColor redColor]];
-	[[self.bindedViewController expect] rnn_setTabBarTranslucent:NO];
-	[[self.bindedViewController expect] rnn_setTabBarHideShadow:YES];
-	[[self.bindedViewController expect] rnn_setTabBarStyle:UIBarStyleBlack];
-	[[self.bindedViewController expect] rnn_setTabBarVisible:NO];
-	
-	[self.uut applyOptions:initialOptions];
-	[self.bindedViewController verify];
+    RNNNavigationOptions *initialOptions = [[RNNNavigationOptions alloc] initEmptyOptions];
+    initialOptions.bottomTabs.testID = [[Text alloc] initWithValue:@"testID"];
+    initialOptions.bottomTabs.backgroundColor = [[Color alloc] initWithValue:[UIColor redColor]];
+    initialOptions.bottomTabs.translucent = [[Bool alloc] initWithValue:@(0)];
+    initialOptions.bottomTabs.hideShadow = [[Bool alloc] initWithValue:@(1)];
+    initialOptions.bottomTabs.visible = [[Bool alloc] initWithValue:@(0)];
+    initialOptions.bottomTabs.barStyle = [[Text alloc] initWithValue:@"black"];
+
+    [[self.boundViewController expect] rnn_setTabBarTestID:@"testID"];
+    [[self.boundViewController expect] rnn_setTabBarBackgroundColor:[UIColor redColor]];
+    [[self.boundViewController expect] rnn_setTabBarTranslucent:NO];
+    [[self.boundViewController expect] rnn_setTabBarHideShadow:YES];
+    [[self.boundViewController expect] rnn_setTabBarStyle:UIBarStyleBlack];
+    [[self.boundViewController expect] rnn_setTabBarVisible:NO animated:NO];
+
+    [self.uut applyOptions:initialOptions];
+    [self.boundViewController verify];
 }
 
-- (void)testApplyOptions_shouldApplyOptionsOnInit {
-	RNNNavigationOptions* initialOptions = [[RNNNavigationOptions alloc] initEmptyOptions];
-	initialOptions.bottomTabs.currentTabIndex = [[IntNumber alloc] initWithValue:@(1)];
-	[[self.bindedViewController expect] rnn_setCurrentTabIndex:1];
-	
-	[self.uut applyOptionsOnInit:initialOptions];
-	[self.bindedViewController verify];
+- (void)testViewDidLayoutSubviews_appliesBadgeOnNextRunLoop {
+    id uut = [self uut];
+    [[uut expect] applyDotIndicator];
+    [uut viewDidLayoutSubviews];
+    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    [uut verify];
+}
+
+- (void)testApplyDotIndicator_callsAppliesBadgeWithEachChild {
+    id uut = [self uut];
+    id child1 = [UIViewController new];
+    id child2 = [UIViewController new];
+
+    [[uut expect] applyDotIndicator:child1];
+    [[uut expect] applyDotIndicator:child2];
+    [[self boundViewController] addChildViewController:child1];
+    [[self boundViewController] addChildViewController:child2];
+
+    [uut applyDotIndicator];
+    [uut verify];
 }
 
 @end
